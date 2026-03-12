@@ -1,139 +1,132 @@
 /**
- * Smart flood fill that closes gaps in line drawings.
+ * Smart flood fill with two-pass gap-tolerant algorithm.
  *
- * Uses BFS dilation to expand line pixels outward by `gapTolerance` pixels,
- * creating a virtual boundary that closes gaps up to 2*gapTolerance wide.
- * The actual flood fill uses this virtual boundary, then paints only on
- * non-line pixels to preserve stroke appearance.
+ * Pass 1: BFS using a dilated boundary (line pixels expanded by gapTolerance)
+ *   → finds which region was clicked without leaking through gaps
+ *   → produces a filledMask of pixels in the region
+ *
+ * Pass 2: BFS expands filledMask outward by gapTolerance, stopping at actual
+ *   line pixels (not dilated ones) → fill reaches the real line edges, no white border
+ *
+ * Reads line data from artImageData, writes fill color to fillImageData.
  */
-export function smartFill(imageData, startX, startY, fillColor, options = {}) {
+export function smartFill(artImageData, fillImageData, startX, startY, fillColor, options = {}) {
   const { gapTolerance = 4, lineThreshold = 128 } = options;
-  const { width, height, data } = imageData;
-
+  const { width, height } = artImageData;
+  const artData = artImageData.data;
+  const fillData = fillImageData.data;
   const total = width * height;
   const startIdx = startY * width + startX;
 
-  // --- Step 1: Classify pixels as line or background ---
-  // A pixel is a "line" if it's dark (low luminance) or has high alpha,
-  // meaning something was drawn there. Works for both drawn strokes and
-  // imported images with dark lines on white.
+  // --- Step 1: Classify line pixels from the art layer ---
   const isLine = new Uint8Array(total);
   for (let i = 0; i < total; i++) {
-    const r = data[i * 4];
-    const g = data[i * 4 + 1];
-    const b = data[i * 4 + 2];
-    const a = data[i * 4 + 3];
+    const r = artData[i * 4];
+    const g = artData[i * 4 + 1];
+    const b = artData[i * 4 + 2];
+    const a = artData[i * 4 + 3];
     const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-    // Drawn strokes: alpha-based. Imported images: luminance-based.
-    if ((a > lineThreshold && luminance < lineThreshold) || (a === 255 && luminance < lineThreshold)) {
+    if (a > lineThreshold && luminance < lineThreshold) {
       isLine[i] = 1;
     }
   }
 
-  // --- Step 2: BFS dilation to build virtual boundary ---
-  // Expand each line pixel outward by `gapTolerance` steps.
-  // This closes gaps up to 2*gapTolerance pixels wide.
-  const dilated = new Uint8Array(isLine); // copy
-
-  // BFS dilation: track distance from nearest line pixel
-  // Use a typed array queue for performance (O(1) dequeue)
+  // --- Step 2: BFS dilation — expand line pixels outward by gapTolerance ---
+  // Gaps up to 2*gapTolerance wide get bridged by the virtual boundary.
+  const dilated = new Uint8Array(isLine);
   const dilateQueue = new Int32Array(total);
-  const dist = new Int32Array(total).fill(-1);
-  let dHead = 0;
-  let dTail = 0;
+  const distFromLine = new Int32Array(total).fill(-1);
+  let dHead = 0, dTail = 0;
 
   for (let i = 0; i < total; i++) {
-    if (isLine[i]) { dist[i] = 0; dilateQueue[dTail++] = i; }
+    if (isLine[i]) { distFromLine[i] = 0; dilateQueue[dTail++] = i; }
   }
 
   while (dHead < dTail) {
     const idx = dilateQueue[dHead++];
-    if (dist[idx] >= gapTolerance) continue;
-    const x = idx % width;
-    const y = Math.floor(idx / width);
-
-    // 4-connected neighbors
-    const neighbors = [];
-    if (x > 0) neighbors.push(idx - 1);
-    if (x < width - 1) neighbors.push(idx + 1);
-    if (y > 0) neighbors.push(idx - width);
-    if (y < height - 1) neighbors.push(idx + width);
-
-    for (const nIdx of neighbors) {
-      if (dist[nIdx] === -1) {
-        dist[nIdx] = dist[idx] + 1;
-        dilated[nIdx] = 1;
-        dilateQueue[dTail++] = nIdx;
-      }
-    }
+    if (distFromLine[idx] >= gapTolerance) continue;
+    const x = idx % width, y = (idx / width) | 0;
+    if (x > 0         && distFromLine[idx - 1]     === -1) { distFromLine[idx - 1]     = distFromLine[idx] + 1; dilated[idx - 1]     = 1; dilateQueue[dTail++] = idx - 1; }
+    if (x < width - 1 && distFromLine[idx + 1]     === -1) { distFromLine[idx + 1]     = distFromLine[idx] + 1; dilated[idx + 1]     = 1; dilateQueue[dTail++] = idx + 1; }
+    if (y > 0         && distFromLine[idx - width] === -1) { distFromLine[idx - width] = distFromLine[idx] + 1; dilated[idx - width] = 1; dilateQueue[dTail++] = idx - width; }
+    if (y < height - 1 && distFromLine[idx + width] === -1) { distFromLine[idx + width] = distFromLine[idx] + 1; dilated[idx + width] = 1; dilateQueue[dTail++] = idx + width; }
   }
 
   // --- Step 3: Validate start pixel ---
   if (dilated[startIdx]) {
-    return { imageData, filled: 0, aborted: true, reason: 'start_on_boundary' };
+    return { fillImageData, filled: 0, aborted: true, reason: 'start_on_boundary' };
   }
 
-  // Parse fill color
+  // --- Step 4: Pass 1 — BFS flood fill using dilated boundary → filledMask ---
+  // Identifies which region was clicked. Gaps are closed so fill can't leak.
+  const filledMask = new Uint8Array(total);
+  const pass1Queue = new Int32Array(total);
+  let p1Head = 0, p1Tail = 0;
+
+  filledMask[startIdx] = 1;
+  pass1Queue[p1Tail++] = startIdx;
+
+  while (p1Head < p1Tail) {
+    const idx = pass1Queue[p1Head++];
+    const x = idx % width, y = (idx / width) | 0;
+    if (x > 0         && !filledMask[idx - 1]     && !dilated[idx - 1])     { filledMask[idx - 1]     = 1; pass1Queue[p1Tail++] = idx - 1; }
+    if (x < width - 1 && !filledMask[idx + 1]     && !dilated[idx + 1])     { filledMask[idx + 1]     = 1; pass1Queue[p1Tail++] = idx + 1; }
+    if (y > 0         && !filledMask[idx - width] && !dilated[idx - width]) { filledMask[idx - width] = 1; pass1Queue[p1Tail++] = idx - width; }
+    if (y < height - 1 && !filledMask[idx + width] && !dilated[idx + width]) { filledMask[idx + width] = 1; pass1Queue[p1Tail++] = idx + width; }
+  }
+
+  // --- Step 5: Pass 2 — Expand filledMask outward to actual line edges ---
+  // Starts from every pixel in filledMask and expands outward by gapTolerance,
+  // stopping only at actual isLine pixels (not the dilated boundary).
+  // This fills the "fringe zone" between the dilated boundary and real lines,
+  // eliminating the white border. Safe from leaking: the expansion is bounded
+  // to gapTolerance steps from a region that was already gap-closed in pass 1.
+  const expandedMask = new Uint8Array(filledMask);
+  const pass2Queue = new Int32Array(total);
+  const distFromRegion = new Int32Array(total).fill(-1);
+  let p2Head = 0, p2Tail = 0;
+
+  for (let i = 0; i < total; i++) {
+    if (filledMask[i]) { distFromRegion[i] = 0; pass2Queue[p2Tail++] = i; }
+  }
+
+  while (p2Head < p2Tail) {
+    const idx = pass2Queue[p2Head++];
+    if (distFromRegion[idx] >= gapTolerance) continue;
+    const x = idx % width, y = (idx / width) | 0;
+
+    const tryExpand = (nIdx) => {
+      if (distFromRegion[nIdx] === -1 && !isLine[nIdx]) {
+        distFromRegion[nIdx] = distFromRegion[idx] + 1;
+        expandedMask[nIdx] = 1;
+        pass2Queue[p2Tail++] = nIdx;
+      }
+    };
+    if (x > 0)          tryExpand(idx - 1);
+    if (x < width - 1)  tryExpand(idx + 1);
+    if (y > 0)          tryExpand(idx - width);
+    if (y < height - 1) tryExpand(idx + width);
+  }
+
+  // --- Step 6: Paint expandedMask to the fill canvas ---
   const fr = fillColor.r ?? 0;
   const fg = fillColor.g ?? 0;
   const fb = fillColor.b ?? 0;
   const fa = fillColor.a ?? 255;
-
-  // Check if already this fill color
-  const si = startIdx * 4;
-  if (data[si] === fr && data[si + 1] === fg && data[si + 2] === fb && data[si + 3] === fa) {
-    return { imageData, filled: 0, aborted: true, reason: 'already_filled' };
-  }
-
-  // --- Step 4: BFS flood fill using dilated boundary ---
-  const visited = new Uint8Array(total);
-  const fillQueue = new Int32Array(total);
-  let fHead = 0;
-  let fTail = 0;
-
-  fillQueue[fTail++] = startIdx;
-  visited[startIdx] = 1;
   let filled = 0;
 
-  while (fHead < fTail) {
-    const idx = fillQueue[fHead++];
-    const x = idx % width;
-    const y = Math.floor(idx / width);
-
-    // Paint this pixel if it's not an actual line pixel
-    if (!isLine[idx]) {
-      const pi = idx * 4;
-      data[pi] = fr;
-      data[pi + 1] = fg;
-      data[pi + 2] = fb;
-      data[pi + 3] = fa;
+  for (let i = 0; i < total; i++) {
+    if (expandedMask[i]) {
+      const pi = i * 4;
+      fillData[pi]     = fr;
+      fillData[pi + 1] = fg;
+      fillData[pi + 2] = fb;
+      fillData[pi + 3] = fa;
       filled++;
-    }
-
-    // Enqueue 4-connected neighbors not blocked by dilated boundary
-    const left = idx - 1;
-    if (x > 0 && !visited[left] && !dilated[left]) {
-      visited[left] = 1;
-      fillQueue[fTail++] = left;
-    }
-    const right = idx + 1;
-    if (x < width - 1 && !visited[right] && !dilated[right]) {
-      visited[right] = 1;
-      fillQueue[fTail++] = right;
-    }
-    const up = idx - width;
-    if (y > 0 && !visited[up] && !dilated[up]) {
-      visited[up] = 1;
-      fillQueue[fTail++] = up;
-    }
-    const down = idx + width;
-    if (y < height - 1 && !visited[down] && !dilated[down]) {
-      visited[down] = 1;
-      fillQueue[fTail++] = down;
     }
   }
 
-  return { imageData, filled, aborted: false };
+  return { fillImageData, filled, aborted: false };
 }
 
 /** Convert a hex color string (#rrggbb) to { r, g, b, a } */

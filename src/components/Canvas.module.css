@@ -3,29 +3,30 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  /* Checkered background to show transparency */
-  background-color: #e0e0e0;
-  background-image:
-    linear-gradient(45deg, #cccccc 25%, transparent 25%),
-    linear-gradient(-45deg, #cccccc 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #cccccc 75%),
-    linear-gradient(-45deg, transparent 75%, #cccccc 75%);
-  background-size: 20px 20px;
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  background: #ffffff;
 }
 
-.canvas {
+/* All canvas layers share the same footprint */
+.layerCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   display: block;
 }
 
+/* Art layer sits on top and uses multiply so white becomes transparent */
+.artCanvas {
+  mix-blend-mode: multiply;
+}
+
+/* Brush cursor follows mouse in draw mode */
 .brushCursor {
   position: fixed;
   border-radius: 50%;
-  border: 1.5px solid rgba(0, 0, 0, 0.6);
+  border: 1.5px solid rgba(0, 0, 0, 0.5);
   pointer-events: none;
   transform: translate(-50%, -50%);
   z-index: 1000;
-  mix-blend-mode: difference;
 }

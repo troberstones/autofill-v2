@@ -4,7 +4,9 @@ import { smartFill, hexToRgba } from '../algorithms/smartFill';
 import styles from './Canvas.module.css';
 
 export function Canvas({
-  canvasRef,
+  artCanvasRef,
+  fillCanvasRef,
+  boundaryCanvasRef,
   activeTool,
   strokeColor,
   brushSize,
@@ -15,109 +17,131 @@ export function Canvas({
 }) {
   const containerRef = useRef(null);
 
-  // Initialize canvas size and fill with white
-  useEffect(() => {
-    const canvas = canvasRef.current;
+  // Resize a canvas to match the container, preserving its existing content.
+  const resizeCanvas = useCallback((canvas, preserveContent = true, fillWhite = false) => {
     const container = containerRef.current;
     if (!canvas || !container) return;
+    const { width, height } = container.getBoundingClientRect();
+    const w = Math.floor(width * devicePixelRatio);
+    const h = Math.floor(height * devicePixelRatio);
+    if (canvas.width === w && canvas.height === h) return;
 
-    const resize = () => {
-      const { width, height } = container.getBoundingClientRect();
-      // Preserve existing content during resize
-      const tmp = document.createElement('canvas');
-      tmp.width = canvas.width;
-      tmp.height = canvas.height;
-      tmp.getContext('2d').drawImage(canvas, 0, 0);
+    let saved = null;
+    if (preserveContent && canvas.width > 0 && canvas.height > 0) {
+      saved = document.createElement('canvas');
+      saved.width = canvas.width;
+      saved.height = canvas.height;
+      saved.getContext('2d').drawImage(canvas, 0, 0);
+    }
 
-      canvas.width = Math.floor(width * devicePixelRatio);
-      canvas.height = Math.floor(height * devicePixelRatio);
+    canvas.width = w;
+    canvas.height = h;
 
-      const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d');
+    if (fillWhite) {
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      if (tmp.width > 0 && tmp.height > 0) {
-        ctx.drawImage(tmp, 0, 0);
-      }
-    };
+      ctx.fillRect(0, 0, w, h);
+    }
+    if (saved) ctx.drawImage(saved, 0, 0);
+  }, []);
+
+  // Initialize all three canvases and load the default test image.
+  useEffect(() => {
+    const container = containerRef.current;
+    const artCanvas = artCanvasRef.current;
+    const fillCanvas = fillCanvasRef.current;
+    const boundaryCanvas = boundaryCanvasRef.current;
+    if (!container || !artCanvas || !fillCanvas || !boundaryCanvas) return;
 
     let initialized = false;
-    const resizeAndMaybeLoad = () => {
+
+    const resize = () => {
+      resizeCanvas(artCanvas, true, true);   // art: white background
+      resizeCanvas(fillCanvas, true, false); // fill: transparent background
+      resizeCanvas(boundaryCanvas, true, false);
+    };
+
+    const init = () => {
       resize();
       if (!initialized) {
         initialized = true;
         const img = new Image();
         img.onload = () => {
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const ctx = canvas.getContext('2d');
+          const art = artCanvasRef.current;
+          if (!art) return;
+          const ctx = art.getContext('2d');
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+          ctx.fillRect(0, 0, art.width, art.height);
+          const scale = Math.min(art.width / img.width, art.height / img.height);
           const w = img.width * scale;
           const h = img.height * scale;
-          ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+          ctx.drawImage(img, (art.width - w) / 2, (art.height - h) / 2, w, h);
         };
         img.src = '/testFills.png';
       }
     };
 
-    resizeAndMaybeLoad();
+    init();
     const ro = new ResizeObserver(resize);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [canvasRef]);
+  }, [artCanvasRef, fillCanvasRef, boundaryCanvasRef, resizeCanvas]);
 
-  const handleHistorySnapshot = useCallback((phase) => {
-    if (phase === 'before') {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      onHistoryPush(snapshot);
-    }
-  }, [canvasRef, onHistoryPush]);
+  // Snapshot the art canvas before each stroke (for undo).
+  const handleStrokeSnapshot = useCallback((phase) => {
+    if (phase !== 'before') return;
+    const art = artCanvasRef.current;
+    if (!art) return;
+    const snapshot = art.getContext('2d').getImageData(0, 0, art.width, art.height);
+    onHistoryPush({ type: 'art', artSnapshot: snapshot });
+  }, [artCanvasRef, onHistoryPush]);
 
   const { startStroke, continueStroke, endStroke } = useDrawing({
-    canvasRef,
+    canvasRef: artCanvasRef,
     brushSize,
     strokeColor,
-    onStrokeEnd: handleHistorySnapshot,
+    onStrokeEnd: handleStrokeSnapshot,
   });
 
   const handleFillClick = useCallback((e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const art = artCanvasRef.current;
+    const fill = fillCanvasRef.current;
+    if (!art || !fill) return;
+
+    const rect = art.getBoundingClientRect();
+    const scaleX = art.width / rect.width;
+    const scaleY = art.height / rect.height;
     const x = Math.floor((e.clientX - rect.left) * scaleX);
     const y = Math.floor((e.clientY - rect.top) * scaleY);
 
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const artCtx = art.getContext('2d');
+    const fillCtx = fill.getContext('2d');
+
+    const artImageData = artCtx.getImageData(0, 0, art.width, art.height);
+    const fillImageData = fillCtx.getImageData(0, 0, fill.width, fill.height);
     const rgba = hexToRgba(fillColor);
 
     onStatusChange('Filling…');
 
-    // Use setTimeout to let status render before the synchronous fill
     setTimeout(() => {
-      const result = smartFill(imageData, x, y, rgba, { gapTolerance });
+      const result = smartFill(artImageData, fillImageData, x, y, rgba, { gapTolerance });
+
       if (result.aborted) {
-        if (result.reason === 'start_on_boundary') {
-          onStatusChange('Clicked on a line — try clicking inside a region');
-        } else {
-          onStatusChange('');
-        }
+        onStatusChange(result.reason === 'start_on_boundary'
+          ? 'Clicked on a line — try clicking inside a region'
+          : '');
         return;
       }
-      // Push snapshot before applying fill
-      const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      onHistoryPush(snapshot);
-      ctx.putImageData(result.imageData, 0, 0);
+
+      // Save fill canvas snapshot before committing (for undo).
+      const snapshot = fillCtx.getImageData(0, 0, fill.width, fill.height);
+      onHistoryPush({ type: 'fill', fillSnapshot: snapshot });
+
+      fillCtx.putImageData(result.fillImageData, 0, 0);
       onStatusChange(`Filled ${result.filled.toLocaleString()} pixels`);
       setTimeout(() => onStatusChange(''), 2000);
     }, 16);
-  }, [canvasRef, fillColor, gapTolerance, onHistoryPush, onStatusChange]);
+  }, [artCanvasRef, fillCanvasRef, fillColor, gapTolerance, onHistoryPush, onStatusChange]);
 
   const handleMouseDown = useCallback((e) => {
     if (activeTool === 'draw') startStroke(e);
@@ -125,6 +149,10 @@ export function Canvas({
 
   const handleMouseMove = useCallback((e) => {
     if (activeTool === 'draw') continueStroke(e);
+    if (activeTool === 'draw') {
+      const el = document.getElementById('brushCursor');
+      if (el) { el.style.left = e.clientX + 'px'; el.style.top = e.clientY + 'px'; }
+    }
   }, [activeTool, continueStroke]);
 
   const handleMouseUp = useCallback((e) => {
@@ -135,33 +163,25 @@ export function Canvas({
     if (activeTool === 'fill') handleFillClick(e);
   }, [activeTool, handleFillClick]);
 
-  const cursor = activeTool === 'fill' ? 'crosshair' : 'none';
-
   return (
     <div ref={containerRef} className={styles.container}>
       {activeTool === 'draw' && (
         <div
-          className={styles.brushCursor}
           id="brushCursor"
+          className={styles.brushCursor}
           style={{ width: brushSize, height: brushSize }}
         />
       )}
+
+      {/* Layer order: fill (bottom) → boundary (middle) → art (top, multiply) */}
+      <canvas ref={fillCanvasRef}     className={styles.layerCanvas} />
+      <canvas ref={boundaryCanvasRef} className={styles.layerCanvas} style={{ display: 'none' }} />
       <canvas
-        ref={canvasRef}
-        className={styles.canvas}
-        style={{ cursor }}
+        ref={artCanvasRef}
+        className={`${styles.layerCanvas} ${styles.artCanvas}`}
+        style={{ cursor: activeTool === 'fill' ? 'crosshair' : 'none' }}
         onMouseDown={handleMouseDown}
-        onMouseMove={(e) => {
-          handleMouseMove(e);
-          // Move custom brush cursor
-          if (activeTool === 'draw') {
-            const el = document.getElementById('brushCursor');
-            if (el) {
-              el.style.left = e.clientX + 'px';
-              el.style.top = e.clientY + 'px';
-            }
-          }
-        }}
+        onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onClick={handleClick}
