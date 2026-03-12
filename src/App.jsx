@@ -49,6 +49,8 @@ export default function App() {
   const skeletonRef    = useRef(null); // { data: Uint8Array, width, height } | null
   const [spurLength,    setSpurLength]    = useState(8);
   const [maxGapDist,    setMaxGapDist]    = useState(30);
+  const [windowSize,    setWindowSize]    = useState(31); // adaptive threshold window (px)
+  const [bias,          setBias]          = useState(10); // luminance units below local mean = line
   const [boundaryMode,  setBoundaryMode]  = useState('art'); // 'art' | 'skeleton'
   const [isProcessing,  setIsProcessing]  = useState(false);
   const [hasSkeleton,   setHasSkeleton]   = useState(false);
@@ -167,20 +169,20 @@ export default function App() {
     offscreen.getContext('2d').drawImage(art, 0, 0, sw, sh);
     const imgData = offscreen.getContext('2d').getImageData(0, 0, sw, sh);
 
-    // Threshold to binary
-    const binary = new Uint8Array(sw * sh);
+    // Extract per-pixel luminance (transparent pixels → 255 = white background)
+    const luminance = new Float32Array(sw * sh);
     for (let i = 0; i < sw * sh; i++) {
       const r = imgData.data[i * 4];
       const g = imgData.data[i * 4 + 1];
       const b = imgData.data[i * 4 + 2];
       const a = imgData.data[i * 4 + 3];
-      binary[i] = (a > 128 && 0.299 * r + 0.587 * g + 0.114 * b < 128) ? 1 : 0;
+      luminance[i] = a < 128 ? 255 : 0.299 * r + 0.587 * g + 0.114 * b;
     }
 
-    // Send to worker (transfer buffer for zero-copy)
+    // Send raw luminance to worker — it handles auto-levels + adaptive threshold
     workerRef.current.postMessage(
-      { type: 'skeletonize', pixels: binary, width: sw, height: sh, spurLength },
-      [binary.buffer]
+      { type: 'skeletonize', luminance, width: sw, height: sh, spurLength, windowSize, bias },
+      [luminance.buffer]
     );
   }, [isProcessing, spurLength]);
 
@@ -287,6 +289,8 @@ export default function App() {
       <ProcessToolbar
         spurLength={spurLength}   setSpurLength={setSpurLength}
         maxGapDist={maxGapDist}   setMaxGapDist={setMaxGapDist}
+        windowSize={windowSize}   setWindowSize={setWindowSize}
+        bias={bias}               setBias={setBias}
         boundaryMode={boundaryMode} setBoundaryMode={setBoundaryMode}
         onProcess={handleProcess}
         isProcessing={isProcessing}

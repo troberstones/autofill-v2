@@ -3,6 +3,8 @@ import styles from './ProcessToolbar.module.css';
 export function ProcessToolbar({
   spurLength, setSpurLength,
   maxGapDist, setMaxGapDist,
+  windowSize, setWindowSize,
+  bias, setBias,
   boundaryMode, setBoundaryMode,
   onProcess,
   isProcessing,
@@ -22,6 +24,24 @@ export function ProcessToolbar({
         {isProcessing ? <SpinnerIcon /> : <SkeletonIcon />}
         {isProcessing ? 'Processing…' : 'Process'}
       </button>
+
+      <div className={styles.sliderGroup}>
+        <label className={styles.sliderLabel} title="Adaptive threshold window size — larger captures more context">
+          Window <strong>{windowSize}px</strong>
+        </label>
+        <input type="range" min={7} max={81} step={2} value={windowSize}
+          onChange={e => setWindowSize(Number(e.target.value))}
+          className={styles.slider} disabled={isProcessing} />
+      </div>
+
+      <div className={styles.sliderGroup}>
+        <label className={styles.sliderLabel} title="Lower = captures lighter/finer strokes. Higher = only darkest marks.">
+          Sensitivity <strong>{bias}</strong>
+        </label>
+        <input type="range" min={1} max={40} value={bias}
+          onChange={e => setBias(Number(e.target.value))}
+          className={styles.slider} disabled={isProcessing} />
+      </div>
 
       <div className={styles.sliderGroup}>
         <label className={styles.sliderLabel}>Spur <strong>{spurLength}px</strong></label>
