@@ -12,6 +12,7 @@ export function Canvas({
   brushSize,
   fillColor,
   gapTolerance,
+  layerVisibility,
   onHistoryPush,
   onStatusChange,
 }) {
@@ -174,12 +175,15 @@ export function Canvas({
       )}
 
       {/* Layer order: fill (bottom) → boundary (middle) → art (top, multiply) */}
-      <canvas ref={fillCanvasRef}     className={styles.layerCanvas} />
-      <canvas ref={boundaryCanvasRef} className={styles.layerCanvas} style={{ display: 'none' }} />
+      <canvas ref={fillCanvasRef}     className={styles.layerCanvas} style={{ visibility: layerVisibility.fill     ? 'visible' : 'hidden' }} />
+      <canvas ref={boundaryCanvasRef} className={styles.layerCanvas} style={{ visibility: layerVisibility.boundary ? 'visible' : 'hidden' }} />
       <canvas
         ref={artCanvasRef}
         className={`${styles.layerCanvas} ${styles.artCanvas}`}
-        style={{ cursor: activeTool === 'fill' ? 'crosshair' : 'none' }}
+        style={{
+          cursor: activeTool === 'fill' ? 'crosshair' : 'none',
+          visibility: layerVisibility.art ? 'visible' : 'hidden',
+        }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
