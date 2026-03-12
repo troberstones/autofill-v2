@@ -12,6 +12,7 @@ export function Canvas({
   brushSize,
   fillColor,
   gapTolerance,
+  boundaryMode,
   layerVisibility,
   onHistoryPush,
   onStatusChange,
@@ -118,14 +119,24 @@ export function Canvas({
     const artCtx = art.getContext('2d');
     const fillCtx = fill.getContext('2d');
 
-    const artImageData = artCtx.getImageData(0, 0, art.width, art.height);
+    const artImageData  = artCtx.getImageData(0, 0, art.width, art.height);
     const fillImageData = fillCtx.getImageData(0, 0, fill.width, fill.height);
     const rgba = hexToRgba(fillColor);
+
+    // When using skeleton mode, read boundary canvas as the line source
+    let boundaryImageData = null;
+    if (boundaryMode === 'skeleton' && boundaryCanvasRef.current) {
+      const bCtx = boundaryCanvasRef.current.getContext('2d');
+      boundaryImageData = bCtx.getImageData(0, 0, boundaryCanvasRef.current.width, boundaryCanvasRef.current.height);
+    }
 
     onStatusChange('Filling…');
 
     setTimeout(() => {
-      const result = smartFill(artImageData, fillImageData, x, y, rgba, { gapTolerance });
+      const result = smartFill(artImageData, fillImageData, x, y, rgba, {
+        gapTolerance,
+        boundaryImageData,
+      });
 
       if (result.aborted) {
         onStatusChange(result.reason === 'start_on_boundary'

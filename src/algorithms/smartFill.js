@@ -11,23 +11,30 @@
  * Reads line data from artImageData, writes fill color to fillImageData.
  */
 export function smartFill(artImageData, fillImageData, startX, startY, fillColor, options = {}) {
-  const { gapTolerance = 4, lineThreshold = 128 } = options;
+  const { gapTolerance = 4, lineThreshold = 128, boundaryImageData = null } = options;
   const { width, height } = artImageData;
   const artData = artImageData.data;
   const fillData = fillImageData.data;
   const total = width * height;
   const startIdx = startY * width + startX;
 
-  // --- Step 1: Classify line pixels from the art layer ---
+  // --- Step 1: Classify line pixels ---
+  // If boundaryImageData is provided (skeleton + gap bridges), use alpha-based detection.
+  // Otherwise fall back to luminance-based detection on the art layer.
   const isLine = new Uint8Array(total);
-  for (let i = 0; i < total; i++) {
-    const r = artData[i * 4];
-    const g = artData[i * 4 + 1];
-    const b = artData[i * 4 + 2];
-    const a = artData[i * 4 + 3];
-    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (a > lineThreshold && luminance < lineThreshold) {
-      isLine[i] = 1;
+  if (boundaryImageData) {
+    const bd = boundaryImageData.data;
+    for (let i = 0; i < total; i++) {
+      isLine[i] = bd[i * 4 + 3] > 0 ? 1 : 0;
+    }
+  } else {
+    for (let i = 0; i < total; i++) {
+      const r = artData[i * 4];
+      const g = artData[i * 4 + 1];
+      const b = artData[i * 4 + 2];
+      const a = artData[i * 4 + 3];
+      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (a > lineThreshold && luminance < lineThreshold) isLine[i] = 1;
     }
   }
 
