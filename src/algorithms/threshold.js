@@ -5,6 +5,58 @@
  */
 
 /**
+ * Separable box blur on a Float32Array of luminance values.
+ * Two O(n) sliding-window passes (horizontal then vertical) — fast regardless of radius.
+ *
+ * Applied before adaptive thresholding so nearby faint pixels reinforce each
+ * other and small gaps within a stroke get filled before the binary decision.
+ *
+ * @param {Float32Array} luminance
+ * @param {number}       width / height
+ * @param {number}       radius   0 = no-op; 1–10 useful range
+ * @returns {Float32Array}
+ */
+export function boxBlur(luminance, width, height, radius) {
+  if (radius < 1) return luminance;
+
+  const tmp = new Float32Array(luminance.length);
+  const out = new Float32Array(luminance.length);
+
+  // --- Horizontal pass: luminance → tmp ---
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    let sum = 0;
+    // Seed window with pixels [0 .. min(radius, width-1)]
+    for (let x = 0; x <= Math.min(radius, width - 1); x++) sum += luminance[row + x];
+
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.max(0, x - radius);
+      const x1 = Math.min(width - 1, x + radius);
+      tmp[row + x] = sum / (x1 - x0 + 1);
+      // Slide right: remove leftmost, add new rightmost
+      if (x - radius >= 0)         sum -= luminance[row + x - radius];
+      if (x + radius + 1 < width)  sum += luminance[row + x + radius + 1];
+    }
+  }
+
+  // --- Vertical pass: tmp → out ---
+  for (let x = 0; x < width; x++) {
+    let sum = 0;
+    for (let y = 0; y <= Math.min(radius, height - 1); y++) sum += tmp[y * width + x];
+
+    for (let y = 0; y < height; y++) {
+      const y0 = Math.max(0, y - radius);
+      const y1 = Math.min(height - 1, y + radius);
+      out[y * width + x] = sum / (y1 - y0 + 1);
+      if (y - radius >= 0)          sum -= tmp[(y - radius) * width + x];
+      if (y + radius + 1 < height)  sum += tmp[(y + radius + 1) * width + x];
+    }
+  }
+
+  return out;
+}
+
+/**
  * Percentile-based auto-levels on a Float32Array of luminance values.
  * Clips the darkest 2% and brightest 2% of pixels, then stretches the
  * remaining range to [0, 255]. Handles faint pencil scans by punching

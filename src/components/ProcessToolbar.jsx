@@ -3,6 +3,7 @@ import styles from './ProcessToolbar.module.css';
 export function ProcessToolbar({
   spurLength, setSpurLength,
   maxGapDist, setMaxGapDist,
+  blurRadius, setBlurRadius,
   windowSize, setWindowSize,
   bias, setBias,
   boundaryMode, setBoundaryMode,
@@ -24,6 +25,15 @@ export function ProcessToolbar({
         {isProcessing ? <SpinnerIcon /> : <SkeletonIcon />}
         {isProcessing ? 'Processing…' : 'Process'}
       </button>
+
+      <div className={styles.sliderGroup}>
+        <label className={styles.sliderLabel} title="Blur radius applied before thresholding — knits faint nearby pixels together">
+          Blur <strong>{blurRadius === 0 ? 'off' : `${blurRadius}px`}</strong>
+        </label>
+        <input type="range" min={0} max={10} value={blurRadius}
+          onChange={e => setBlurRadius(Number(e.target.value))}
+          className={styles.slider} disabled={isProcessing} />
+      </div>
 
       <div className={styles.sliderGroup}>
         <label className={styles.sliderLabel} title="Adaptive threshold window size — larger captures more context">

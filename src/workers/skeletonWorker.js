@@ -1,15 +1,19 @@
-import { autoLevels, adaptiveThreshold } from '../algorithms/threshold.js';
+import { autoLevels, boxBlur, adaptiveThreshold } from '../algorithms/threshold.js';
 import { zhangSuenThin, pruneSpurs } from '../algorithms/skeleton.js';
 
 self.onmessage = ({ data }) => {
   if (data.type !== 'skeletonize') return;
-  const { luminance, width, height, spurLength, windowSize, bias } = data;
+  const { luminance, width, height, spurLength, windowSize, bias, blurRadius } = data;
 
   // 1. Stretch contrast so faint pencil lines become clearly dark
   const leveled = autoLevels(luminance, width * height);
 
-  // 2. Adaptive threshold — each pixel vs. its local neighborhood average
-  const binary = adaptiveThreshold(leveled, width, height, windowSize, bias);
+  // 2. Optional blur — softens noise and knits nearby faint pixels together
+  //    before thresholding, so strokes with slightly lighter centres stay solid
+  const blurred = boxBlur(leveled, width, height, blurRadius ?? 0);
+
+  // 3. Adaptive threshold — each pixel vs. its local neighborhood average
+  const binary = adaptiveThreshold(blurred, width, height, windowSize, bias);
 
   // 3. Zhang-Suen thinning → 1px skeleton
   const skeleton = zhangSuenThin(binary, width, height);

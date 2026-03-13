@@ -49,6 +49,7 @@ export default function App() {
   const skeletonRef    = useRef(null); // { data: Uint8Array, width, height } | null
   const [spurLength,    setSpurLength]    = useState(8);
   const [maxGapDist,    setMaxGapDist]    = useState(30);
+  const [blurRadius,    setBlurRadius]    = useState(0);  // pre-threshold blur radius (px)
   const [windowSize,    setWindowSize]    = useState(31); // adaptive threshold window (px)
   const [bias,          setBias]          = useState(10); // luminance units below local mean = line
   const [boundaryMode,  setBoundaryMode]  = useState('art'); // 'art' | 'skeleton'
@@ -181,7 +182,7 @@ export default function App() {
 
     // Send raw luminance to worker — it handles auto-levels + adaptive threshold
     workerRef.current.postMessage(
-      { type: 'skeletonize', luminance, width: sw, height: sh, spurLength, windowSize, bias },
+      { type: 'skeletonize', luminance, width: sw, height: sh, spurLength, windowSize, bias, blurRadius },
       [luminance.buffer]
     );
   }, [isProcessing, spurLength]);
@@ -289,6 +290,7 @@ export default function App() {
       <ProcessToolbar
         spurLength={spurLength}   setSpurLength={setSpurLength}
         maxGapDist={maxGapDist}   setMaxGapDist={setMaxGapDist}
+        blurRadius={blurRadius}   setBlurRadius={setBlurRadius}
         windowSize={windowSize}   setWindowSize={setWindowSize}
         bias={bias}               setBias={setBias}
         boundaryMode={boundaryMode} setBoundaryMode={setBoundaryMode}
