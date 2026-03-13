@@ -82,9 +82,10 @@ export function Toolbar({
           <span className={styles.layersLabel}>Layers</span>
           <div className={styles.layerRows}>
             {[
-              { key: 'art',      label: 'Art',      dot: '#888' },
-              { key: 'fill',     label: 'Fill',     dot: '#4a9eff' },
-              { key: 'boundary', label: 'Boundary', dot: '#f90' },
+              { key: 'art',       label: 'Art',       dot: '#888' },
+              { key: 'fill',      label: 'Fill',      dot: '#4a9eff' },
+              { key: 'boundary',  label: 'Boundary',  dot: '#f90' },
+              { key: 'endpoints', label: 'Endpoints', dot: '#ff2d78' },
             ].map(({ key, label, dot }) => (
               <div key={key} className={styles.layerRow}>
                 <button

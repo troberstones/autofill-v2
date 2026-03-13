@@ -26,10 +26,30 @@ function downloadCanvas(canvas, filename, whiteBackground = false) {
   a.click();
 }
 
+/** Draw open-endpoint markers on the endpoints canvas. */
+function renderEndpoints(ctx, endpoints) {
+  const r = Math.max(3, ctx.canvas.width / 400); // scale dot size to canvas resolution
+  ctx.save();
+  for (const { x, y } of endpoints) {
+    // White halo for contrast against any background
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fill();
+    // Bright magenta dot
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff2d78';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 export default function App() {
-  const artCanvasRef      = useRef(null);
-  const fillCanvasRef     = useRef(null);
-  const boundaryCanvasRef = useRef(null);
+  const artCanvasRef       = useRef(null);
+  const fillCanvasRef      = useRef(null);
+  const boundaryCanvasRef  = useRef(null);
+  const endpointsCanvasRef = useRef(null);
 
   // Tool settings
   const [activeTool,   setActiveTool]   = useState('draw');
@@ -41,7 +61,7 @@ export default function App() {
 
   // Layer visibility
   const [layerVisibility, setLayerVisibility] = useState({
-    art: true, fill: true, boundary: true,
+    art: true, fill: true, boundary: true, endpoints: true,
   });
 
   // Skeleton / process state
@@ -105,7 +125,15 @@ export default function App() {
           lookback: 10,
         });
 
-        setProcessStatus(`${result.endpointCount} endpoints · ${result.bridgeCount} bridges`);
+        // Render open endpoints to the 4th layer
+        const epCanvas = endpointsCanvasRef.current;
+        if (epCanvas) {
+          const epCtx = epCanvas.getContext('2d');
+          epCtx.clearRect(0, 0, epCanvas.width, epCanvas.height);
+          renderEndpoints(epCtx, result.openEndpoints);
+        }
+
+        setProcessStatus(`${result.endpointCount} endpoints · ${result.bridgeCount} bridges · ${result.openEndpoints.length} open`);
       }
 
       setHasSkeleton(true);
@@ -193,7 +221,7 @@ export default function App() {
   }, []);
 
   const handleExportLayer = useCallback((key) => {
-    const map = { art: artCanvasRef, fill: fillCanvasRef, boundary: boundaryCanvasRef };
+    const map = { art: artCanvasRef, fill: fillCanvasRef, boundary: boundaryCanvasRef, endpoints: endpointsCanvasRef };
     const canvas = map[key]?.current;
     if (!canvas) return;
     downloadCanvas(canvas, `layer-${key}.png`, key === 'art');
@@ -220,7 +248,9 @@ export default function App() {
           const scale = Math.min(art.width / img.width, art.height / img.height);
           const w = img.width * scale, h = img.height * scale;
           ctx.drawImage(img, (art.width - w) / 2, (art.height - h) / 2, w, h);
-          // Importing new art invalidates the skeleton
+          // Importing new art invalidates the skeleton and endpoint markers
+          const ep = endpointsCanvasRef.current;
+          if (ep) ep.getContext('2d').clearRect(0, 0, ep.width, ep.height);
           skeletonRef.current = null;
           setHasSkeleton(false);
           setBoundaryMode('art');
@@ -264,6 +294,8 @@ export default function App() {
     artCtx.fillRect(0, 0, art.width, art.height);
     fillCtx.clearRect(0, 0, fill.width, fill.height);
     if (boundary) boundary.getContext('2d').clearRect(0, 0, boundary.width, boundary.height);
+    const ep = endpointsCanvasRef.current;
+    if (ep) ep.getContext('2d').clearRect(0, 0, ep.width, ep.height);
     skeletonRef.current = null;
     setHasSkeleton(false);
     setBoundaryMode('art');
@@ -303,6 +335,7 @@ export default function App() {
         artCanvasRef={artCanvasRef}
         fillCanvasRef={fillCanvasRef}
         boundaryCanvasRef={boundaryCanvasRef}
+        endpointsCanvasRef={endpointsCanvasRef}
         activeTool={activeTool}
         strokeColor={strokeColor}
         brushSize={brushSize}

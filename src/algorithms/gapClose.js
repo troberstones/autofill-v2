@@ -87,5 +87,13 @@ export function closeGaps(skeleton, skelW, skelH, ctx, canvasW, canvasH, options
 
   ctx.restore();
 
-  return { endpointCount: endpoints.length, bridgeCount };
+  // Collect endpoints that were NOT connected (open ends)
+  const openEndpoints = withDirs
+    .filter((_, i) => !used.has(i))
+    .map(ep => ({
+      x: ep.x * scaleX,
+      y: ep.y * scaleY,
+    }));
+
+  return { endpointCount: endpoints.length, bridgeCount, openEndpoints };
 }

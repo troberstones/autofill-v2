@@ -7,6 +7,7 @@ export function Canvas({
   artCanvasRef,
   fillCanvasRef,
   boundaryCanvasRef,
+  endpointsCanvasRef,
   activeTool,
   strokeColor,
   brushSize,
@@ -50,17 +51,19 @@ export function Canvas({
   // Initialize all three canvases and load the default test image.
   useEffect(() => {
     const container = containerRef.current;
-    const artCanvas = artCanvasRef.current;
-    const fillCanvas = fillCanvasRef.current;
-    const boundaryCanvas = boundaryCanvasRef.current;
-    if (!container || !artCanvas || !fillCanvas || !boundaryCanvas) return;
+    const artCanvas       = artCanvasRef.current;
+    const fillCanvas      = fillCanvasRef.current;
+    const boundaryCanvas  = boundaryCanvasRef.current;
+    const endpointsCanvas = endpointsCanvasRef.current;
+    if (!container || !artCanvas || !fillCanvas || !boundaryCanvas || !endpointsCanvas) return;
 
     let initialized = false;
 
     const resize = () => {
-      resizeCanvas(artCanvas, true, true);   // art: white background
-      resizeCanvas(fillCanvas, true, false); // fill: transparent background
+      resizeCanvas(artCanvas, true, true);        // art: white background
+      resizeCanvas(fillCanvas, true, false);      // fill: transparent background
       resizeCanvas(boundaryCanvas, true, false);
+      resizeCanvas(endpointsCanvas, true, false); // endpoints: transparent
     };
 
     const init = () => {
@@ -87,7 +90,7 @@ export function Canvas({
     const ro = new ResizeObserver(resize);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [artCanvasRef, fillCanvasRef, boundaryCanvasRef, resizeCanvas]);
+  }, [artCanvasRef, fillCanvasRef, boundaryCanvasRef, endpointsCanvasRef, resizeCanvas]);
 
   // Snapshot the art canvas before each stroke (for undo).
   const handleStrokeSnapshot = useCallback((phase) => {
@@ -185,9 +188,9 @@ export function Canvas({
         />
       )}
 
-      {/* Layer order: fill (bottom) → boundary (middle) → art (top, multiply) */}
-      <canvas ref={fillCanvasRef}     className={styles.layerCanvas} style={{ visibility: layerVisibility.fill     ? 'visible' : 'hidden' }} />
-      <canvas ref={boundaryCanvasRef} className={styles.layerCanvas} style={{ visibility: layerVisibility.boundary ? 'visible' : 'hidden' }} />
+      {/* Layer order: fill → boundary → art (multiply) → endpoints (pointer-events: none) */}
+      <canvas ref={fillCanvasRef}     className={styles.layerCanvas} style={{ visibility: layerVisibility.fill      ? 'visible' : 'hidden' }} />
+      <canvas ref={boundaryCanvasRef} className={styles.layerCanvas} style={{ visibility: layerVisibility.boundary  ? 'visible' : 'hidden' }} />
       <canvas
         ref={artCanvasRef}
         className={`${styles.layerCanvas} ${styles.artCanvas}`}
@@ -203,6 +206,15 @@ export function Canvas({
         onTouchStart={handleMouseDown}
         onTouchMove={handleMouseMove}
         onTouchEnd={handleMouseUp}
+      />
+      {/* Endpoints layer — purely visual, never receives pointer events */}
+      <canvas
+        ref={endpointsCanvasRef}
+        className={styles.layerCanvas}
+        style={{
+          visibility: layerVisibility.endpoints ? 'visible' : 'hidden',
+          pointerEvents: 'none',
+        }}
       />
     </div>
   );
